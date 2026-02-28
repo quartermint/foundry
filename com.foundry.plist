@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.foundry</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/ryanstern/foundry/backend/.venv/bin/uvicorn</string>
+        <string>app.main:app</string>
+        <string>--host</string>
+        <string>0.0.0.0</string>
+        <string>--port</string>
+        <string>8787</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/ryanstern/foundry/backend</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>FOUNDRY_ENV</key>
+        <string>production</string>
+    </dict>
+    <key>KeepAlive</key>
+    <true/>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/ryanstern/foundry/logs/stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/ryanstern/foundry/logs/stderr.log</string>
+</dict>
+</plist>
