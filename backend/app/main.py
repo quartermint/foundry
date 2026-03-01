@@ -78,7 +78,11 @@ app.include_router(plate.router)
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok"}
+    result = {"status": "ok"}
+    if settings.blender_mcp_enabled:
+        from app.services.blender_mcp import blender_mcp
+        result["blender_mcp"] = await blender_mcp.health_check()
+    return result
 
 
 # Mount frontend static files in production

@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-frontend build deploy logs setup clean
+.PHONY: dev dev-backend dev-frontend build deploy logs setup clean deploy-blender blender-logs blender-status
 
 # Development
 dev:
@@ -35,6 +35,20 @@ deploy: build
 	launchctl unload ~/Library/LaunchAgents/com.foundry.plist 2>/dev/null || true
 	launchctl load ~/Library/LaunchAgents/com.foundry.plist
 	@echo "Foundry deployed and running on :8787"
+
+# BlenderMCP (headless Blender with poly-mcp addon)
+deploy-blender:
+	@mkdir -p ~/Library/LaunchAgents logs
+	cp com.blender-mcp.plist ~/Library/LaunchAgents/com.blender-mcp.plist
+	launchctl unload ~/Library/LaunchAgents/com.blender-mcp.plist 2>/dev/null || true
+	launchctl load ~/Library/LaunchAgents/com.blender-mcp.plist
+	@echo "BlenderMCP deployed — check with: make blender-status"
+
+blender-logs:
+	tail -f logs/blender-mcp.stdout.log logs/blender-mcp.stderr.log
+
+blender-status:
+	@curl -s http://localhost:8000/mcp/list_tools | python3 -m json.tool 2>/dev/null && echo "BlenderMCP: UP" || echo "BlenderMCP: DOWN"
 
 # Logs
 logs:

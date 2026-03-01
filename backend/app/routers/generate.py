@@ -13,6 +13,7 @@ router = APIRouter(prefix="/api/generate", tags=["generate"], dependencies=[Depe
 class GenerateRequest(BaseModel):
     description: str
     constraints: dict | None = None
+    backend: str | None = None
 
 
 class IterateRequest(BaseModel):
@@ -25,8 +26,12 @@ async def generate_from_description(
     body: GenerateRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    """Generate a 3D model from a natural language description using Claude + OpenSCAD."""
-    result = await generate_model(body.description, constraints=body.constraints)
+    """Generate a 3D model from a natural language description using AI + OpenSCAD/Blender."""
+    result = await generate_model(
+        body.description,
+        constraints=body.constraints,
+        backend_override=body.backend,
+    )
 
     if not result["success"]:
         raise HTTPException(status_code=422, detail=result.get("error", "Generation failed"))
@@ -38,6 +43,7 @@ async def generate_from_description(
         model_path=result.get("stl_path"),
         sliced_path=result.get("sliced_path"),
         thumbnail_path=result.get("thumbnail_path"),
+        generation_backend=result.get("generation_backend"),
         status="pending_approval",
     )
     session.add(item)
@@ -46,7 +52,8 @@ async def generate_from_description(
 
     return {
         "queue_item": item.to_dict(),
-        "scad_path": result.get("scad_path"),
+        "source_path": result.get("source_path"),
+        "generation_backend": result.get("generation_backend"),
     }
 
 
@@ -62,21 +69,32 @@ async def iterate_design(
     if item.source_type != "generated":
         raise HTTPException(status_code=400, detail="Can only iterate on generated models")
 
-    # Read previous SCAD code
-    scad_path = item.model_path
-    if scad_path:
-        scad_path = scad_path.replace(".stl", ".scad")
+    # Detect backend from source file extension
+    backend = item.generation_backend
+    if not backend and item.model_path:
+        source_path = item.model_path.replace(".stl", ".py")
+        from pathlib import Path
+        if Path(source_path).exists():
+            backend = "blender"
+        else:
+            backend = "openscad"
+
+    # Read previous source code
     previous_code = None
-    try:
-        with open(scad_path, "r") as f:
-            previous_code = f.read()
-    except Exception:
-        pass
+    if item.model_path:
+        ext = ".py" if backend == "blender" else ".scad"
+        source_path = item.model_path.replace(".stl", ext)
+        try:
+            with open(source_path, "r") as f:
+                previous_code = f.read()
+        except Exception:
+            pass
 
     result = await generate_model(
         item.description or item.title,
         previous_code=previous_code,
         feedback=body.feedback,
+        backend_override=backend,
     )
 
     if not result["success"]:
@@ -86,6 +104,7 @@ async def iterate_design(
     item.model_path = result.get("stl_path")
     item.sliced_path = result.get("sliced_path")
     item.thumbnail_path = result.get("thumbnail_path")
+    item.generation_backend = result.get("generation_backend")
     item.status = "pending_approval"
 
     await session.commit()
@@ -93,5 +112,6 @@ async def iterate_design(
 
     return {
         "queue_item": item.to_dict(),
-        "scad_path": result.get("scad_path"),
+        "source_path": result.get("source_path"),
+        "generation_backend": result.get("generation_backend"),
     }

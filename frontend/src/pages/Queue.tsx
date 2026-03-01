@@ -18,6 +18,7 @@ interface QueueItem {
   filament_g: number | null
   print_time_min: number | null
   plate_id: number | null
+  generation_backend: string | null
   error_message: string | null
   created_at: string | null
   updated_at: string | null
@@ -331,6 +332,17 @@ export default function Queue() {
                   </div>
 
                   <div className="flex items-center gap-3 text-xs text-zinc-500 mb-3">
+                    {item.generation_backend && (
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                          item.generation_backend === 'blender'
+                            ? 'bg-orange-500/15 text-orange-400'
+                            : 'bg-violet-500/15 text-violet-400'
+                        }`}
+                      >
+                        {item.generation_backend === 'blender' ? 'Blender' : 'OpenSCAD'}
+                      </span>
+                    )}
                     <span className="flex items-center gap-1">
                       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3">
                         <circle cx="12" cy="12" r="10" />

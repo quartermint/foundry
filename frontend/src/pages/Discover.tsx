@@ -29,7 +29,8 @@ interface GenerateResponse {
     thumbnail_path: string | null
     status: string
   }
-  scad_path: string | null
+  source_path: string | null
+  generation_backend: string | null
 }
 
 interface AddToQueueResponse {
@@ -55,6 +56,7 @@ export default function Discover() {
   const [searchQuery, setSearchQuery] = useState('')
   const [mode, setMode] = useState<'search' | 'generate'>('search')
   const [generateDesc, setGenerateDesc] = useState('')
+  const [generateBackend, setGenerateBackend] = useState<'auto' | 'openscad' | 'blender'>('auto')
   const [results, setResults] = useState<DiscoveryResult[]>([])
   const [totalFound, setTotalFound] = useState(0)
   const [addedIds, setAddedIds] = useState<Set<number>>(new Set())
@@ -94,7 +96,10 @@ export default function Discover() {
     mutationFn: (description: string) =>
       apiFetch<GenerateResponse>('/api/generate', {
         method: 'POST',
-        body: JSON.stringify({ description }),
+        body: JSON.stringify({
+          description,
+          ...(generateBackend !== 'auto' ? { backend: generateBackend } : {}),
+        }),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['queue'] })
@@ -388,9 +393,18 @@ export default function Discover() {
                 rows={4}
                 className="w-full bg-zinc-800 border border-zinc-600 rounded-lg px-4 py-3 text-sm text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-violet-500 transition-colors resize-none"
               />
-              <div className="flex items-center justify-between mt-3">
-                <p className="text-xs text-zinc-500">
-                  AI will generate an OpenSCAD model and add it to your queue for review
+              <div className="flex items-center gap-3 mt-3">
+                <select
+                  value={generateBackend}
+                  onChange={(e) => setGenerateBackend(e.target.value as 'auto' | 'openscad' | 'blender')}
+                  className="bg-zinc-800 border border-zinc-600 rounded-lg px-3 py-2 text-xs text-zinc-300 focus:outline-none focus:border-violet-500"
+                >
+                  <option value="auto">Auto (AI picks)</option>
+                  <option value="openscad">OpenSCAD</option>
+                  <option value="blender">Blender</option>
+                </select>
+                <p className="text-xs text-zinc-500 flex-1">
+                  AI will generate a model and add it to your queue for review
                 </p>
                 <button
                   type="submit"
@@ -421,7 +435,7 @@ export default function Discover() {
               <div className="w-12 h-12 border-2 border-zinc-600 border-t-violet-400 rounded-full animate-spin mx-auto mb-4" />
               <h3 className="text-zinc-200 font-medium mb-1">Generating your model...</h3>
               <p className="text-xs text-zinc-500">
-                Claude is writing OpenSCAD code, compiling to STL, and creating a preview
+                AI is generating your model, compiling to STL, and creating a preview
               </p>
             </div>
           )}
@@ -471,6 +485,17 @@ export default function Discover() {
                   <p className="text-zinc-400 text-sm mb-3 line-clamp-2">
                     {generateMutation.data.queue_item.title}
                   </p>
+                  {generateMutation.data.generation_backend && (
+                    <span
+                      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium mb-2 ${
+                        generateMutation.data.generation_backend === 'blender'
+                          ? 'bg-orange-500/15 text-orange-400'
+                          : 'bg-violet-500/15 text-violet-400'
+                      }`}
+                    >
+                      Made with {generateMutation.data.generation_backend === 'blender' ? 'Blender' : 'OpenSCAD'}
+                    </span>
+                  )}
                   <p className="text-xs text-zinc-500 mb-3">
                     Added to your queue as pending approval. Review and approve to print.
                   </p>

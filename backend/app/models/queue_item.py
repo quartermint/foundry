@@ -27,6 +27,7 @@ class QueueItem(Base):
     filament_g: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     print_time_min: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     plate_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    generation_backend: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
@@ -54,6 +55,7 @@ class QueueItem(Base):
             "filament_g": self.filament_g,
             "print_time_min": self.print_time_min,
             "plate_id": self.plate_id,
+            "generation_backend": self.generation_backend,
             "error_message": self.error_message,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
