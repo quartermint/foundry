@@ -183,17 +183,21 @@ async def generate_blender_script(
 
     system_prompt = f"""You are an expert 3D artist generating Blender Python (bpy) scripts for FDM 3D printing.
 
-Your script will run in a persistent headless Blender instance. You MUST:
-1. Clear the scene first: delete all objects, meshes, materials
-2. Create the model using bpy ops and data APIs
-3. Ensure the mesh is manifold (watertight, no non-manifold edges)
-4. Apply all transforms (Ctrl+A equivalent)
-5. Recalculate normals to face outward
-6. Remove doubles / merge by distance
-7. Export to STL at exactly this path: bpy.ops.wm.stl_export(filepath="{stl_export_path}")
+Your script runs in a HEADLESS Blender instance (--background mode). Important constraints:
+- Do NOT use bpy.context.active_object or bpy.context.selected_objects (unavailable in background threads)
+- Access objects by name via bpy.data.objects["Name"] instead
+- Do NOT use bpy.ops.wm.stl_export (poll fails in background mode)
+- Use the bmesh-based STL export helper shown below
+
+You MUST:
+1. Clear the scene first: remove all objects and meshes via bpy.data
+2. Create the model using bpy.ops mesh primitives and bpy.data APIs
+3. Ensure the mesh is manifold (watertight)
+4. Join all objects into one, apply transforms, clean geometry
+5. Export to binary STL using the helper function below
 
 3D Printing Constraints:
-- Max overhang angle: 45 degrees (design for printability without supports when possible)
+- Max overhang angle: 45 degrees (design for printability without supports)
 - Minimum wall thickness: 0.8mm
 - Build volume: 256 x 256 x 256 mm
 - Ensure solid geometry, no zero-thickness faces
@@ -202,28 +206,54 @@ Script Template:
 ```python
 import bpy
 import bmesh
+import struct
+
+# --- STL export helper (required - bpy.ops export fails in background mode) ---
+def export_stl(obj, filepath):
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bmesh.ops.triangulate(bm, faces=bm.faces)
+    tris = []
+    for f in bm.faces:
+        tris.append((f.normal, [v.co for v in f.verts]))
+    bm.free()
+    with open(filepath, "wb") as fp:
+        fp.write(b"\\x00" * 80)
+        fp.write(struct.pack("<I", len(tris)))
+        for n, vs in tris:
+            fp.write(struct.pack("<3f", *n))
+            for v in vs:
+                fp.write(struct.pack("<3f", *v))
+            fp.write(struct.pack("<H", 0))
+    print(f"Exported {{len(tris)}} triangles to {{filepath}}")
 
 # Clear scene
-bpy.ops.object.select_all(action='SELECT')
-bpy.ops.object.delete(use_global=False)
-for mesh in bpy.data.meshes:
+for obj in list(bpy.data.objects):
+    bpy.data.objects.remove(obj, do_unlink=True)
+for mesh in list(bpy.data.meshes):
     bpy.data.meshes.remove(mesh)
 
 # --- Your modeling code here ---
+# Use bpy.ops.mesh.primitive_*_add() to create shapes
+# Access created objects via bpy.data.objects["ObjectName"]
 
-# Finalize: select all, apply transforms, clean geometry
-bpy.ops.object.select_all(action='SELECT')
-obj = bpy.context.selected_objects[0]
-bpy.context.view_layer.objects.active = obj
-bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
-bpy.ops.object.mode_set(mode='EDIT')
-bpy.ops.mesh.select_all(action='SELECT')
-bpy.ops.mesh.remove_doubles(threshold=0.001)
-bpy.ops.mesh.normals_make_consistent(inside=False)
-bpy.ops.object.mode_set(mode='OBJECT')
+# Finalize: join all objects, clean geometry, export
+objs = list(bpy.data.objects)
+if len(objs) > 1:
+    for o in objs:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = objs[0]
+    bpy.ops.object.join()
 
-# Export
-bpy.ops.wm.stl_export(filepath="{stl_export_path}")
+final_obj = bpy.data.objects[0]
+bm = bmesh.new()
+bm.from_mesh(final_obj.data)
+bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.001)
+bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+bm.to_mesh(final_obj.data)
+bm.free()
+
+export_stl(final_obj, "{stl_export_path}")
 ```
 
 Return ONLY the Python code, no explanation or markdown fences."""

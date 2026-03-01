@@ -8,8 +8,8 @@
 	<array>
 		<string>/Applications/Blender.app/Contents/MacOS/Blender</string>
 		<string>--background</string>
-		<string>--python-expr</string>
-		<string>import bpy; bpy.ops.wm.blender_mcp_server()</string>
+		<string>--python</string>
+		<string>/Users/ryanstern/foundry/scripts/blender_mcp_headless.py</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>
@@ -24,7 +24,7 @@
 	<key>EnvironmentVariables</key>
 	<dict>
 		<key>PATH</key>
-		<string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+		<string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
 	</dict>
 </dict>
 </plist>
