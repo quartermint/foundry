@@ -17,11 +17,7 @@ class Settings(BaseSettings):
     blender_export_dir: str = ""
     makerworld_email: str = ""
     makerworld_password: str = ""
-    reddit_client_id: str = ""
-    reddit_client_secret: str = ""
     reddit_user_agent: str = "foundry/1.0"
-    reddit_login_user: str = ""
-    reddit_login_password: str = ""
     foundry_env: str = "development"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
