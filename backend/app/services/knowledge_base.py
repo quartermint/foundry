@@ -1,7 +1,8 @@
 import json
 import logging
 
-import anthropic
+from google import genai
+from google.genai import types
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,6 +10,8 @@ from app.config import settings
 from app.models.tip import Tip
 
 logger = logging.getLogger(__name__)
+
+MODEL = "gemini-3-flash-preview"
 
 
 async def ensure_fts_table(session: AsyncSession):
@@ -58,7 +61,7 @@ async def search_tips(session: AsyncSession, query: str, limit: int = 20) -> lis
 
 
 async def ask_knowledge_base(session: AsyncSession, question: str) -> dict:
-    """Answer a question using tips from the knowledge base + Claude synthesis."""
+    """Answer a question using tips from the knowledge base + Gemini synthesis."""
     tips = await search_tips(session, question, limit=20)
 
     if not tips:
@@ -80,20 +83,19 @@ async def ask_knowledge_base(session: AsyncSession, question: str) -> dict:
 
     context = "\n\n".join(context_parts)
 
-    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=1000,
-        system="You are a helpful 3D printing expert. Answer questions using the provided tips from the knowledge base. "
-               "Cite sources using [N] notation. Be concise and practical.",
-        messages=[{
-            "role": "user",
-            "content": f"Knowledge base tips:\n{context}\n\nQuestion: {question}",
-        }],
+    client = genai.Client(api_key=settings.gemini_api_key)
+    response = client.models.generate_content(
+        model=MODEL,
+        config=types.GenerateContentConfig(
+            system_instruction="You are a helpful 3D printing expert. Answer questions using the provided tips from the knowledge base. "
+                               "Cite sources using [N] notation. Be concise and practical.",
+            max_output_tokens=1000,
+        ),
+        contents=f"Knowledge base tips:\n{context}\n\nQuestion: {question}",
     )
 
     return {
-        "answer": message.content[0].text,
+        "answer": response.text,
         "sources": sources,
         "tips_used": len(tips),
     }

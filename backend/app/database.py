@@ -52,6 +52,13 @@ async def _run_migrations():
                 text("ALTER TABLE queue_items ADD COLUMN generation_backend VARCHAR(32)")
             )
 
+        result = await conn.execute(text("PRAGMA table_info(printers)"))
+        columns = {row[1] for row in result.fetchall()}
+        if "storage_path" not in columns:
+            await conn.execute(
+                text("ALTER TABLE printers ADD COLUMN storage_path VARCHAR(64)")
+            )
+
 
 async def init_db():
     async with engine.begin() as conn:

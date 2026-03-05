@@ -2,7 +2,8 @@ import asyncio
 import json
 import logging
 
-import anthropic
+from google import genai
+from google.genai import types
 
 from app.config import settings
 from app.database import async_session_factory
@@ -78,14 +79,12 @@ async def scrape_youtube():
                         import os
                         os.unlink(sf)
 
-                    # Extract tips via Claude
-                    client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-                    message = client.messages.create(
-                        model="claude-sonnet-4-6",
-                        max_tokens=1000,
-                        messages=[{
-                            "role": "user",
-                            "content": f"""Extract actionable 3D printing tips from this YouTube video transcript.
+                    # Extract tips via Gemini
+                    client = genai.Client(api_key=settings.gemini_api_key)
+                    response = client.models.generate_content(
+                        model="gemini-3-flash-preview",
+                        config=types.GenerateContentConfig(max_output_tokens=1000),
+                        contents=f"""Extract actionable 3D printing tips from this YouTube video transcript.
 Return a JSON array of objects, each with:
 - "tip": concise actionable tip
 - "tags": relevant tags
@@ -96,11 +95,10 @@ Only include genuinely useful, specific tips. Return empty array if none found.
 
 Title: {title}
 Transcript excerpt: {transcript}""",
-                        }],
                     )
 
                     try:
-                        resp_text = message.content[0].text.strip()
+                        resp_text = response.text.strip()
                         if "[" in resp_text:
                             resp_text = resp_text[resp_text.index("["):resp_text.rindex("]") + 1]
                         tips_data = json.loads(resp_text)

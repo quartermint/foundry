@@ -21,6 +21,7 @@ class Printer(Base):
     bed_x_mm: Mapped[int] = mapped_column(Integer, default=256)
     bed_y_mm: Mapped[int] = mapped_column(Integer, default=256)
     capable_materials: Mapped[str] = mapped_column(Text, default='["PLA"]')
+    storage_path: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
@@ -38,6 +39,7 @@ class Printer(Base):
             "bed_x_mm": self.bed_x_mm,
             "bed_y_mm": self.bed_y_mm,
             "capable_materials": self.capable_materials,
+            "storage_path": self.storage_path,
             "enabled": self.enabled,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

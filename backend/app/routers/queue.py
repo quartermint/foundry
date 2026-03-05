@@ -184,12 +184,12 @@ async def send_to_printer(
 
     # Upload to printer via FTPS
     remote_name = Path(item.sliced_path).name
-    uploaded = await upload_file(printer.ip, printer.access_code, item.sliced_path, remote_name)
-    if not uploaded:
+    remote_path = await upload_file(printer.ip, printer.access_code, item.sliced_path, remote_name, storage_path=printer.storage_path)
+    if not remote_path:
         raise HTTPException(status_code=502, detail="Failed to upload to printer")
 
-    # Start print via MQTT
-    success = await mqtt_service.send_print_command(printer.id, remote_name)
+    # Start print via MQTT (use full remote path for ftp:// URL)
+    success = await mqtt_service.send_print_command(printer.id, remote_path)
     if not success:
         raise HTTPException(status_code=502, detail="Failed to send print command")
 

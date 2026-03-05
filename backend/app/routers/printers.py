@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import require_token
 from app.database import get_session
 from app.models.printer import Printer
-from app.services.bambu_ftp import upload_file
+from app.services.bambu_ftp import diagnose_ftp, upload_file
 from app.services.bambu_mqtt import mqtt_service
 
 router = APIRouter(prefix="/api/printers", tags=["printers"], dependencies=[Depends(require_token)])
@@ -30,6 +30,7 @@ class PrinterCreate(BaseModel):
     bed_x_mm: int = 256
     bed_y_mm: int = 256
     capable_materials: list[str] = ["PLA"]
+    storage_path: str | None = None
     enabled: bool = True
 
 
@@ -44,6 +45,7 @@ class PrinterUpdate(BaseModel):
     bed_x_mm: int | None = None
     bed_y_mm: int | None = None
     capable_materials: list[str] | None = None
+    storage_path: str | None = None
     enabled: bool | None = None
 
 
@@ -86,6 +88,7 @@ async def create_printer(body: PrinterCreate, session: AsyncSession = Depends(ge
         bed_x_mm=body.bed_x_mm,
         bed_y_mm=body.bed_y_mm,
         capable_materials=json.dumps(body.capable_materials),
+        storage_path=body.storage_path,
         enabled=body.enabled,
     )
     session.add(printer)
@@ -158,17 +161,17 @@ async def upload_to_printer(
     with open(local_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    success = await upload_file(
+    remote_path = await upload_file(
         ip=printer.ip,
         access_code=printer.access_code,
         local_path=str(local_path),
         remote_filename=file.filename,
     )
 
-    if not success:
+    if not remote_path:
         raise HTTPException(status_code=502, detail="Failed to upload file to printer via FTPS")
 
-    return {"status": "uploaded", "filename": file.filename}
+    return {"status": "uploaded", "filename": file.filename, "remote_path": remote_path}
 
 
 @router.post("/{printer_id}/print")
@@ -200,3 +203,25 @@ async def get_printer_status(printer_id: int, session: AsyncSession = Depends(ge
         "connected": printer.id in mqtt_service._clients,
         "status": status_data,
     }
+
+
+@router.post("/{printer_id}/diagnose-ftp")
+async def diagnose_printer_ftp(
+    printer_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    """Probe a printer's FTP to discover writable storage paths."""
+    printer = await session.get(Printer, printer_id)
+    if not printer:
+        raise HTTPException(status_code=404, detail="Printer not found")
+
+    result = await diagnose_ftp(printer.ip, printer.access_code)
+
+    # Auto-save first writable path if printer has none configured
+    if result["writable_paths"] and not printer.storage_path:
+        printer.storage_path = result["writable_paths"][0]
+        await session.commit()
+        await session.refresh(printer)
+        result["auto_configured"] = printer.storage_path
+
+    return result

@@ -15,6 +15,11 @@ from app.services.discovery import search_all
 from app.services.slicer import slice_stl
 from app.services.thumbnail import generate_thumbnail
 
+from app.services.makerworld import (
+    debug_download, download_3mf, fetch_model_page, resolve_instance,
+    extract_instance_metadata, verify_login_code,
+)
+
 import httpx
 import logging
 
@@ -39,6 +44,16 @@ class AddToQueueRequest(BaseModel):
     thumbnail_url: str | None = None
     file_type: str = "stl"
     has_bambu_profile: bool = False
+
+
+class MakerWorldDownloadRequest(BaseModel):
+    design_id: int
+    instance_id: int
+    profile_id: int
+
+
+class VerifyCodeRequest(BaseModel):
+    code: str
 
 
 @router.post("/search")
@@ -113,3 +128,90 @@ async def add_to_queue(
     await session.refresh(item)
 
     return item.to_dict()
+
+
+@router.post("/makerworld/download", status_code=201)
+async def download_from_makerworld(
+    body: MakerWorldDownloadRequest,
+    session: AsyncSession = Depends(get_session),
+):
+    """Download a .3mf from MakerWorld and queue it for printing."""
+    try:
+        file_path, metadata = await download_3mf(
+            design_id=body.design_id,
+            instance_id=body.instance_id,
+            profile_id=body.profile_id,
+        )
+    except Exception as e:
+        logger.exception("MakerWorld download failed")
+        raise HTTPException(status_code=502, detail=str(e))
+
+    print_time_min = None
+    if metadata.get("print_time_s"):
+        print_time_min = metadata["print_time_s"] // 60
+
+    item = QueueItem(
+        title=metadata.get("title", f"MakerWorld #{body.design_id}"),
+        description=f"MakerWorld design {body.design_id}, instance {body.instance_id}",
+        source_type="makerworld",
+        source_url=f"https://makerworld.com/en/models/{body.design_id}#profileId-{body.instance_id}",
+        source_platform="makerworld",
+        model_path=str(file_path),
+        sliced_path=str(file_path),  # MakerWorld .3mf is pre-sliced
+        thumbnail_path=metadata.get("thumbnail_path"),
+        status="pending_approval",
+        material=metadata.get("material", "PLA"),
+        filament_g=metadata.get("weight_g"),
+        print_time_min=print_time_min,
+    )
+    session.add(item)
+    await session.commit()
+    await session.refresh(item)
+
+    return item.to_dict()
+
+
+@router.post("/makerworld/verify")
+async def verify_makerworld_login(body: VerifyCodeRequest):
+    """Submit Bambu Lab email verification code to complete login."""
+    try:
+        token = await verify_login_code(body.code)
+        return {"status": "ok", "message": "Login verified, token cached"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/makerworld/model/{design_id}")
+async def get_makerworld_model(design_id: int):
+    """Fetch MakerWorld model metadata and list available print profiles."""
+    try:
+        design = await fetch_model_page(design_id)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    instances = []
+    for inst in design.get("instances", []):
+        meta = extract_instance_metadata(inst)
+        instances.append(meta)
+
+    return {
+        "design_id": design.get("id"),
+        "title": design.get("title"),
+        "cover_url": design.get("coverUrl"),
+        "download_count": design.get("downloadCount"),
+        "print_count": design.get("printCount"),
+        "instances": instances,
+    }
+
+
+@router.get("/makerworld/debug-download/{design_id}/{instance_id}")
+async def debug_makerworld_download(design_id: int, instance_id: int):
+    """Diagnostic endpoint: probe MakerWorld download APIs and capture network activity.
+
+    Returns raw API responses and network logs for remote debugging.
+    """
+    try:
+        return await debug_download(design_id, instance_id)
+    except Exception as e:
+        logger.exception("Debug download failed")
+        raise HTTPException(status_code=502, detail=str(e))

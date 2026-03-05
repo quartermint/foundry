@@ -50,6 +50,27 @@ blender-logs:
 blender-status:
 	@curl -s http://localhost:8000/mcp/list_tools | python3 -m json.tool 2>/dev/null && echo "BlenderMCP: UP" || echo "BlenderMCP: DOWN"
 
+# Sync to Mac Mini
+sync:
+	rsync -avz \
+		--exclude='backend/.venv' \
+		--exclude='frontend/node_modules' \
+		--exclude='frontend/dist' \
+		--exclude='backend/storage/foundry.db*' \
+		--exclude='storage/foundry.db*' \
+		--exclude='logs/*.log' \
+		--exclude='backend/.env' \
+		--exclude='__pycache__' \
+		--exclude='.playwright-mcp' \
+		~/foundry/ 100.123.8.125:~/foundry/
+	@echo "Synced to Mac Mini. Restart with: make restart-remote"
+
+restart-remote:
+	ssh 100.123.8.125 "launchctl unload ~/Library/LaunchAgents/com.foundry.plist 2>/dev/null; sleep 1; launchctl load ~/Library/LaunchAgents/com.foundry.plist"
+	@sleep 3
+	@ssh 100.123.8.125 "curl -s http://localhost:8787/api/health"
+	@echo "\nFoundry restarted on Mac Mini"
+
 # Logs
 logs:
 	tail -f logs/stdout.log logs/stderr.log

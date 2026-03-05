@@ -51,6 +51,11 @@ async def lifespan(app: FastAPI):
     # Shutdown
     logger.info("Foundry backend shutting down")
     stop_scheduler()
+
+    # Clean up Playwright browser
+    from app.services.makerworld import shutdown_browser
+    await shutdown_browser()
+
     for printer_id in list(mqtt_service._clients.keys()):
         await mqtt_service.disconnect_printer(printer_id)
     logger.info("All MQTT connections closed")

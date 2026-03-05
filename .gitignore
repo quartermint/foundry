@@ -17,10 +17,17 @@ storage/models/*
 storage/sliced/*
 storage/thumbnails/*
 storage/foundry.db
+backend/storage/
 !storage/**/.gitkeep
 
 # Logs
 logs/*.log
+
+# Playwright MCP artifacts
+.playwright-mcp/
+
+# Temp screenshots
+reddit-*.png
 
 # IDE
 .vscode/

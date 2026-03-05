@@ -117,18 +117,32 @@ class BambuMQTTService:
     def get_status(self, printer_id: int) -> dict | None:
         return self._status_cache.get(printer_id)
 
-    async def send_print_command(self, printer_id: int, filename: str):
+    async def send_print_command(self, printer_id: int, remote_path: str):
+        """Send print command via MQTT.
+
+        Args:
+            printer_id: Database printer ID.
+            remote_path: Full path on printer (e.g. '/cache/file.3mf').
+        """
         client = self._clients.get(printer_id)
         serial = self._serials.get(printer_id)
         if not client or not serial:
             raise ValueError(f"Printer {printer_id} is not connected via MQTT")
 
+        # Display name is just the filename without path
+        display_name = remote_path.rsplit("/", 1)[-1]
+
+        # Normalize FTP URL: strip leading slash, prepend ftp:///
+        ftp_path = remote_path.lstrip("/")
+        ftp_url = f"ftp:///{ftp_path}"
+
         command = {
             "print": {
+                "sequence_id": "0",
                 "command": "project_file",
-                "param": f"Metadata/plate_1.gcode",
-                "subtask_name": filename,
-                "url": f"ftp:///{filename}",
+                "param": "Metadata/plate_1.gcode",
+                "subtask_name": display_name,
+                "url": ftp_url,
                 "bed_type": "auto",
                 "timelapse": False,
                 "bed_leveling": True,
@@ -143,7 +157,7 @@ class BambuMQTTService:
         result = client.publish(topic, json.dumps(command))
         logger.info(
             "Sent print command for '%s' to printer %d (topic=%s, rc=%s)",
-            filename, printer_id, topic, result.rc,
+            display_name, printer_id, topic, result.rc,
         )
         return result.rc == mqtt.MQTT_ERR_SUCCESS
 
