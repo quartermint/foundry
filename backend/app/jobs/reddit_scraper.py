@@ -1,8 +1,6 @@
-import asyncio
 import json
 import logging
 
-import httpx
 from google import genai
 from google.genai import types
 
@@ -15,58 +13,52 @@ logger = logging.getLogger(__name__)
 
 SUBREDDITS = ["3Dprinting", "BambuLab", "functionalprint"]
 MIN_UPVOTES = 50
-REDDIT_JSON_URL = "https://www.reddit.com/r/{subreddit}/hot.json?limit=25"
 
 
 async def scrape_reddit():
     """Scrape Reddit for 3D printing tips and add to knowledge base."""
-    if not settings.gemini_api_key:
-        logger.info("Gemini API key not configured, skipping Reddit scrape")
+    if not settings.reddit_client_id or not settings.reddit_client_secret:
+        logger.info("Reddit credentials not configured, skipping scrape")
         return
 
     try:
+        import praw
+
+        reddit = praw.Reddit(
+            client_id=settings.reddit_client_id,
+            client_secret=settings.reddit_client_secret,
+            user_agent=settings.reddit_user_agent,
+            username=settings.reddit_login_user or None,
+            password=settings.reddit_login_password or None,
+        )
+
         client = genai.Client(api_key=settings.gemini_api_key)
         tips_added = 0
 
         async with async_session_factory() as session:
             await ensure_fts_table(session)
 
-            async with httpx.AsyncClient(
-                headers={"User-Agent": settings.reddit_user_agent},
-                follow_redirects=True,
-                timeout=30.0,
-            ) as http:
-                for sub_name in SUBREDDITS:
-                    try:
-                        url = REDDIT_JSON_URL.format(subreddit=sub_name)
-                        resp = await http.get(url)
-                        resp.raise_for_status()
-                        listing = resp.json()
+            for sub_name in SUBREDDITS:
+                try:
+                    subreddit = reddit.subreddit(sub_name)
+                    for post in subreddit.hot(limit=25):
+                        if post.score < MIN_UPVOTES:
+                            continue
 
-                        for child in listing.get("data", {}).get("children", []):
-                            post = child.get("data", {})
-                            if post.get("score", 0) < MIN_UPVOTES:
-                                continue
+                        # Check if we already have this URL
+                        from sqlalchemy import select, text
+                        existing = await session.execute(
+                            select(Tip).where(Tip.source_url == post.url)
+                        )
+                        if existing.scalar_one_or_none():
+                            continue
 
-                            permalink = post.get("permalink", "")
-                            source_url = f"https://reddit.com{permalink}"
-
-                            # Check if we already have this URL
-                            from sqlalchemy import select
-
-                            existing = await session.execute(
-                                select(Tip).where(Tip.source_url == source_url)
-                            )
-                            if existing.scalar_one_or_none():
-                                continue
-
-                            # Extract tips using Gemini
-                            selftext = post.get("selftext", "")[:2000]
-                            content = f"Title: {post.get('title', '')}\n\n{selftext}"
-                            response = client.models.generate_content(
-                                model="gemini-3-flash-preview",
-                                config=types.GenerateContentConfig(max_output_tokens=500),
-                                contents=f"""Extract any 3D printing tips from this Reddit post.
+                        # Extract tips using Gemini
+                        content = f"Title: {post.title}\n\n{post.selftext[:2000]}"
+                        response = client.models.generate_content(
+                            model="gemini-3-flash-preview",
+                            config=types.GenerateContentConfig(max_output_tokens=500),
+                            contents=f"""Extract any 3D printing tips from this Reddit post.
 If there are actionable tips, return a JSON object with:
 - "tip": the tip text (concise, actionable)
 - "tags": array of relevant tags (e.g. "retraction", "bed adhesion", "PLA")
@@ -76,42 +68,39 @@ If there are actionable tips, return a JSON object with:
 If no useful tips, return {{"tip": null}}.
 
 Post: {content}""",
-                            )
+                        )
 
-                            try:
-                                resp_text = response.text.strip()
-                                if "{" in resp_text:
-                                    resp_text = resp_text[
-                                        resp_text.index("{") : resp_text.rindex("}") + 1
-                                    ]
-                                data = json.loads(resp_text)
+                        try:
+                            resp_text = response.text.strip()
+                            if "{" in resp_text:
+                                resp_text = resp_text[resp_text.index("{"):resp_text.rindex("}") + 1]
+                            data = json.loads(resp_text)
 
-                                if data.get("tip"):
-                                    tip = Tip(
-                                        source_type="reddit",
-                                        source_url=source_url,
-                                        source_title=post.get("title", ""),
-                                        content=data["tip"],
-                                        tags=json.dumps(data.get("tags", [])),
-                                        materials=json.dumps(data.get("materials", [])),
-                                        printer_models=json.dumps(data.get("printers", [])),
-                                        upvotes=post.get("score", 0),
-                                    )
-                                    session.add(tip)
-                                    await session.commit()
-                                    await session.refresh(tip)
-                                    await sync_fts(session, tip)
-                                    tips_added += 1
-                            except (json.JSONDecodeError, IndexError):
-                                continue
+                            if data.get("tip"):
+                                tip = Tip(
+                                    source_type="reddit",
+                                    source_url=f"https://reddit.com{post.permalink}",
+                                    source_title=post.title,
+                                    content=data["tip"],
+                                    tags=json.dumps(data.get("tags", [])),
+                                    materials=json.dumps(data.get("materials", [])),
+                                    printer_models=json.dumps(data.get("printers", [])),
+                                    upvotes=post.score,
+                                )
+                                session.add(tip)
+                                await session.commit()
+                                await session.refresh(tip)
+                                await sync_fts(session, tip)
+                                tips_added += 1
+                        except (json.JSONDecodeError, IndexError):
+                            continue
 
-                    except Exception:
-                        logger.exception("Failed to scrape r/%s", sub_name)
-
-                    # Rate limit: small delay between subreddits
-                    await asyncio.sleep(2)
+                except Exception:
+                    logger.exception("Failed to scrape r/%s", sub_name)
 
         logger.info("Reddit scrape complete: %d tips added", tips_added)
 
+    except ImportError:
+        logger.error("praw not installed — cannot scrape Reddit")
     except Exception:
         logger.exception("Reddit scrape failed")
